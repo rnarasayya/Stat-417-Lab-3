@@ -1,0 +1,1510 @@
+---
+title: "417HW3"
+author: "Rohan Narasayya"
+date: "2025-02-25"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Problem 1
+
+ Consider the tangency portfolio that achieves 10% annual return, using the histor
+ical data for the expected returns and risks for the periods 2020-2022 and 2023-present
+ from part (a) and (b) in HW 2.
+
+# Part a
+
+Using the code in the lecture slides calculate VaR for 1 day horizon, nonparametri
+cally for confidence level 0.99 for these portfolios. Further, assume that the investment
+ is $10 billion.
+ 
+Use code from homework 2 to get different returns, and run portfolio optimizer too.
+
+```{r}
+library(dplyr)
+library(lubridate)
+```
+
+```{r}
+folder_path <- "~/Stats417/HW1/Data/"
+all_files <- list.files(folder_path)
+filtered_files <- all_files[!grepl("-", all_files)]
+filtered_files <- all_files[-1]
+# Remove "DIA.csv", "QQQ.csv", and "SPY.csv" from filtered_files
+filtered_files <- filtered_files[!filtered_files %in% c("DIA.csv", "QQQ.csv", "SPY.csv")]
+
+# Print the updated list
+print(filtered_files)
+
+datasets <- lapply(filtered_files, function(x){
+  curr_data <- read.table(paste0(folder_path,x), sep=",", h=1)
+  curr_data$Date <- as.Date(curr_data$Date, "%m/%d/%Y")
+  curr_data <- curr_data[order(curr_data$Date),]
+  curr_data$Close.Last <- as.numeric(gsub("\\$", "", curr_data$Close.Last))
+  price <- curr_data$Close.Last
+  names(price) <- curr_data$Date
+  return(price)
+})
+file_names <- gsub("\\.csv$", "", filtered_files)
+names(datasets) <- file_names
+```
+
+```{r}
+daily_returns <- lapply(datasets, function(x) {
+  return(diff(x) / head(x, -1)) 
+})
+```
+
+
+Calculate yearly returns for the two periods, 2020-2022, 2023-present
+```{r}
+yearly_returns <- lapply(datasets, function(x) {
+  df <- data.frame(Date = as.Date(names(x)), Price = x)
+  
+  # Extract year and get the last closing price of each year
+  mutated_df <- df %>%
+    mutate(Year = format(floor_date(Date, "year"), "%Y")) %>%
+    group_by(Year) %>%
+    summarise(ClosingPrice = last(Price), .groups = "drop")
+  
+  # Get yearly prices and set names as years
+  yearly_prices <- mutated_df$ClosingPrice
+  names(yearly_prices) <- mutated_df$Year
+  
+  # Compute regular returns while ensuring alignment
+  yearly_returns <- yearly_prices[-1] / yearly_prices[-length(yearly_prices)] - 1
+  
+  names(yearly_returns) <- names(yearly_prices)[-1]  # Adjust names to match years
+  
+  return(yearly_returns)
+})
+
+print(yearly_returns)
+```
+
+
+```{r}
+# Calculate the covariance matrices for both periods
+periods <- list(
+  "2020-2022" = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  "2023-present" = c(as.Date("2023-01-01"), Sys.Date())
+)
+
+# Helper function to filter log-returns for a given period
+filter_returns_by_period <- function(returns, start_date, end_date) {
+  years <- as.numeric(names(returns))  # Ensure names are numeric years
+  idx <- which(years >= as.numeric(format(start_date, "%Y")) & 
+               years <= as.numeric(format(end_date, "%Y")))
+  return(returns[idx])
+}
+
+
+amazon_returns <- yearly_returns[["Amazon"]]
+apple_returns <- yearly_returns[["Apple"]]
+cisco_returns <- yearly_returns[["Cisco"]]
+meta_returns <- yearly_returns[["Meta"]]
+microsoft_returns <- yearly_returns[["Microsoft"]]
+moderna_returns <- yearly_returns[["Moderna"]]
+netflix_returns <- yearly_returns[["Netflix"]]
+starbucks_returns <- yearly_returns[["Starbucks"]]
+tesla_returns <- yearly_returns[["Tesla"]]
+dia_returns <- yearly_returns[["DIA"]]
+qqq_returns <- yearly_returns[["QQQ"]]
+spy_returns <- yearly_returns[["SPY"]]
+
+
+# 1. Covariance of the stocks for each period
+covariance_results <- lapply(periods, function(period) {
+  amazon <- filter_returns_by_period(amazon_returns, period[1], period[2])
+  apple <- filter_returns_by_period(apple_returns, period[1], period[2])
+  cisco <- filter_returns_by_period(cisco_returns, period[1], period[2])
+  meta <- filter_returns_by_period(meta_returns, period[1], period[2])
+  microsoft <- filter_returns_by_period(microsoft_returns, period[1], period[2])
+  moderna <- filter_returns_by_period(moderna_returns, period[1], period[2])
+  netflix <- filter_returns_by_period(netflix_returns, period[1], period[2])
+  starbucks <- filter_returns_by_period(starbucks_returns, period[1], period[2])
+  tesla <- filter_returns_by_period(tesla_returns, period[1], period[2])
+  
+  # Calculate pairwise covariances
+  cor_matrix <- cov(cbind(amazon, apple, cisco, meta, microsoft, moderna, netflix, starbucks, tesla), use = "complete.obs")
+  return(cor_matrix)
+})
+
+names(covariance_results) <- names(periods)
+covariance_results
+```
+
+
+```{r}
+# Calculate mean vector for both time periods
+mean_results <- lapply(periods, function(period) {
+  amazon <- mean(filter_returns_by_period(amazon_returns, period[1], period[2]))
+  apple <- mean(filter_returns_by_period(apple_returns, period[1], period[2]))
+  cisco <- mean(filter_returns_by_period(cisco_returns, period[1], period[2]))
+  meta <- mean(filter_returns_by_period(meta_returns, period[1], period[2]))
+  microsoft <- mean(filter_returns_by_period(microsoft_returns, period[1], period[2]))
+  moderna <- mean(filter_returns_by_period(moderna_returns, period[1], period[2]))
+  netflix <- mean(filter_returns_by_period(netflix_returns, period[1], period[2]))
+  starbucks <- mean(filter_returns_by_period(starbucks_returns, period[1], period[2]))
+  tesla <- mean(filter_returns_by_period(tesla_returns, period[1], period[2]))
+  
+  # Create vectors
+  mean_vectors <- c(amazon, apple, cisco, meta, microsoft, moderna, netflix, starbucks, tesla)
+  return(mean_vectors)
+})
+
+names(mean_results) <- names(periods)
+mean_results
+```
+
+```{r}
+# Calculate risk free rate for both periods
+bond <- read.csv("~/Stats417/HW1/Data/10-year-treasury-bond-rate-yield-chart.csv")
+
+# Convert date column to Date format
+bond$X10.Year.Treasury.Rate <- as.Date(bond$X10.Year.Treasury.Rate, format = "%m/%d/%y")
+
+# Convert the value column ("X") to numeric and then convert the percentage to a decimal
+bond$daily_rate <- as.numeric(bond$X) / 100
+
+# Define the periods for which to calculate the risk-free rate
+periods <- list(
+  "2020-2022"   = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  "2023-present" = c(as.Date("2023-01-01"), Sys.Date())
+)
+
+# Function to calculate the annualized risk-free rate for a given period
+calculate_mean_rate <- function(start_date, end_date) {
+  bond %>%
+    filter(X10.Year.Treasury.Rate >= start_date & X10.Year.Treasury.Rate <= end_date) %>%
+    summarize(mean_daily_rate = mean(daily_rate, na.rm = TRUE)) %>%
+    pull(mean_daily_rate)
+}
+
+# Compute the annualized mean rates for each period
+mean_rates <- sapply(periods, function(p) calculate_mean_rate(p[1], p[2]))
+
+print(mean_rates)
+```
+
+Modify the portfolio_construction file to work for the 9 stocks
+
+```{r}
+# 2020-2022 period calculations
+
+library(quadprog)
+library(pracma)
+
+nassets=9; # 9 for part 1a
+
+# next expected returns and risks are simulated for nassets
+mean_vect = mean_results[[1]] # Should have 9 values after calculating values
+lambda_eig = runif(nassets, 0.02, 0.08)
+U=randortho(nassets, type = c("orthonormal", "unitary"))
+cov_mat = covariance_results[[1]] # Should be a 9x9 matrix
+library(Matrix)
+cov_mat <- as.matrix(nearPD(cov_mat)$mat) #Added this to fix an error saying matrix was not positive definite
+sd_vect = sqrt(diag(cov_mat))
+
+# constraints for the quadratic problem of portfolio construction
+Amat = cbind(rep(1, nassets), mean_vect, diag(1, nrow = nassets)) # set the constraints matrix
+muP = c(0.05, 0.075, 0.10, 0.125, 0.15, 0.175, 0.20, 0.225, 0.25) # target portfolio means
+
+# for the expect portfolio return
+sdP = muP # set up storage for std dev’s of portfolio returns
+weights = matrix(0, nrow = 9, ncol = nassets) # storage for weights
+for (i in 1:length(muP)) # find the optimal portfolios
+{
+  bvec = c(1, muP[i], rep(0, nassets)) # constraint vector
+  result =
+    solve.QP(Dmat = 2 * cov_mat, dvec = rep(0, nassets),
+             Amat = Amat, bvec = bvec, meq = 2)
+  sdP[i] = sqrt(result$value)
+  weights[i,] = result$solution
+}
+
+#pdf("portfolio_construction.pdf", width = 6, height = 5)
+plot(sdP, muP, type = "l", lty = 3)
+# inefficient portfolios below the min var portfolio)
+mufree = mean_rates[[1]]  # Check 10 year treasury file and get according value
+points(0, mufree, cex = 4, pch = "*") # show risk-free asset
+sharpe = (muP - mufree) / sdP # compute Sharpe’s ratios
+ind = (sharpe == max(sharpe)) # Find maximum Sharpe’s ratio
+weights[ind, ] # print the weights of the tangency portfolio
+lines(c(0, 2), mufree + c(0, 2) * (muP[ind] - mufree) / sdP[ind],
+      lwd = 4, lty = 1, col = "blue") # show line of optimal portfolios
+points(sdP[ind], muP[ind], cex = 4, pch = "*") # tangency portfolio
+ind2 = (sdP == min(sdP)) # find minimum variance portfolio
+points(sdP[ind2], muP[ind2], cex = 2, pch = "+") # min var portfolio
+ind3 = (muP > muP[ind2])
+lines(sdP[ind3], muP[ind3], type = "l", lwd = 3, col = "red") # plot efficient frontier
+```
+
+
+```{r}
+# Calculate daily returns for a portfolio with the weights from above
+# Extract weights for the 10% tangency portfolio
+target_index <- which(muP == 0.10)  # Find the index for 10% return
+tangency_weights <- weights[target_index, ]  # Extract corresponding weights
+
+# Convert daily returns to a matrix (each column is an asset)
+asset_names <- names(daily_returns)  # Extract asset names
+daily_returns_matrix <- do.call(cbind, daily_returns[asset_names])  # Create matrix
+
+# Ensure dimensions match
+if (ncol(daily_returns_matrix) != length(tangency_weights)) {
+  stop("Mismatch between asset returns and tangency portfolio weights!")
+}
+
+# Compute tangency portfolio daily returns
+tangency_portfolio_returns <- daily_returns_matrix %*% tangency_weights  # Matrix multiplication
+
+# Assign proper names to the returns
+names(tangency_portfolio_returns) <- rownames(daily_returns_matrix)
+
+# Print few returns
+print(tail(tangency_portfolio_returns))
+```
+
+```{r}
+# Ensure tangency portfolio returns have proper date names
+dates <- as.Date(names(tangency_portfolio_returns), format = "%Y-%m-%d")
+
+# Define periods
+periods <- list(
+  "2020-2022" = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  "2023-present" = c(as.Date("2023-01-01"), Sys.Date())
+)
+
+# Function to filter returns for a given period
+filter_returns_by_period <- function(returns, dates, start_date, end_date) {
+  idx <- which(dates >= start_date & dates <= end_date)  # Find index range
+  return(returns[idx])
+}
+
+# Filter tangency portfolio returns for both periods
+tangency_portfolio_returns_filtered <- lapply(periods, function(period) {
+  filter_returns_by_period(tangency_portfolio_returns, dates, period[1], period[2])
+})
+
+# Assign period names
+names(tangency_portfolio_returns_filtered) <- names(periods)
+
+# Print summary
+print("Filtered Tangency Portfolio Returns:")
+print(sapply(tangency_portfolio_returns_filtered, summary))  # Print summaries for each period
+```
+
+```{r}
+tangency_2020_2022 <- tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2020-2022)
+var_2020_2022 <- calculate_nonparametric_var(tangency_2020_2022, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Day VaR at 99% Confidence Level for 2020-2022 ($10 Billion Investment):")
+print(var_2020_2022)
+```
+
+```{r}
+tangency_2023_present <- tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2023-present)
+var_2023_present <- calculate_nonparametric_var(tangency_2023_present, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Day VaR at 99% Confidence Level for 2023-present ($10 Billion Investment):")
+print(var_2023_present)
+```
+
+```{r}
+folder_path <- "~/Stats417/HW 2/Data Files/"
+all_files <- list.files(folder_path)
+filtered_files <- all_files[!grepl("-", all_files)]
+
+datasets2 <- lapply(filtered_files, function(x){
+  curr_data <- read.table(paste0(folder_path,x), sep=",", h=1)
+  curr_data$Date <- as.Date(curr_data$Date, "%m/%d/%Y")
+  curr_data <- curr_data[order(curr_data$Date),]
+  curr_data$Close.Last <- as.numeric(gsub("\\$", "", curr_data$Close.Last))
+  price <- curr_data$Close.Last
+  names(price) <- curr_data$Date
+  return(price)
+})
+file_names <- gsub("\\.csv$", "", filtered_files)
+names(datasets2) <- file_names
+
+# Compute daily returns for the additional 6 stocks
+daily_returns_2 <- lapply(datasets2, function(x) {
+  return(diff(x) / head(x, -1))  # Regular daily returns formula
+})
+
+
+# --- Combine both sets into one `daily_returns` list ---
+daily_returns_3 <- c(daily_returns, daily_returns_2)
+
+# Print names of all 15 stocks to verify
+print("All stocks in the combined daily_returns list:")
+print(names(daily_returns_3))
+```
+
+```{r}
+# Use weights from hw2
+tangency_weights <- c(1.115944e-17, -3.461598e-18, 6.193917e-11, 7.702440e-02, 3.319494e-13, 3.130314e-01, 1.051321e-18, 1.088853e-18, 9.883612e-18, -2.554819e-18, -1.557777e-17, 4.798019e-01, 0.000000e+00, 7.189938e-03, 1.229523e-01)
+
+# Convert daily returns to a matrix (each column is an asset)
+asset_names <- names(daily_returns_3)  # Extract asset names
+daily_returns_matrix <- do.call(cbind, daily_returns_3[asset_names])  # Create matrix
+
+# Ensure dimensions match
+if (ncol(daily_returns_matrix) != length(tangency_weights)) {
+  stop("Mismatch between asset returns and tangency portfolio weights!")
+}
+
+# Compute tangency portfolio daily returns
+total_tangency_portfolio_returns <- daily_returns_matrix %*% tangency_weights  # Matrix multiplication
+
+# Assign proper names to the returns
+names(total_tangency_portfolio_returns) <- rownames(daily_returns_matrix)
+
+# Print few returns
+print(tail(total_tangency_portfolio_returns))
+```
+
+```{r}
+# Ensure tangency portfolio returns have proper date names
+dates <- as.Date(names(tangency_portfolio_returns), format = "%Y-%m-%d")
+
+# Define periods
+periods <- list(
+  "2020-2022" = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  "2023-present" = c(as.Date("2023-01-01"), Sys.Date())
+)
+
+# Function to filter returns for a given period
+filter_returns_by_period <- function(returns, dates, start_date, end_date) {
+  idx <- which(dates >= start_date & dates <= end_date)  # Find index range
+  return(returns[idx])
+}
+
+# Filter tangency portfolio returns for both periods
+total_tangency_portfolio_returns_filtered <- lapply(periods, function(period) {
+  filter_returns_by_period(total_tangency_portfolio_returns, dates, period[1], period[2])
+})
+
+# Assign period names
+names(total_tangency_portfolio_returns_filtered) <- names(periods)
+
+# Print summary
+print("Filtered Tangency Portfolio Returns:")
+print(sapply(total_tangency_portfolio_returns_filtered, summary))  # Print summaries for each period
+```
+
+```{r}
+total_tangency_2020_2022 <- total_tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2020-2022)
+total_var_2020_2022 <- calculate_nonparametric_var(total_tangency_2020_2022, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Day VaR at 99% Confidence Level for 2020-2022 ($10 Billion Investment):")
+print(total_var_2020_2022)
+```
+
+```{r}
+total_tangency_2023_present <- total_tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2020-2022)
+total_var_2023_present <- calculate_nonparametric_var(total_tangency_2023_present, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Day VaR at 99% Confidence Level for 2023-present ($10 Billion Investment):")
+print(total_var_2023_present)
+```
+
+The expanded portfolio has a higher VaR for both periods compared to the smaller portfolio, which makes sense intuitively.
+
+
+# Part b
+
+```{r}
+ library(bootstrap)
+ set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(tangency_2020_2022, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+```{r}
+set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(tangency_2023_present, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+We can see that the 2020-2022 period has a higher VaR than 2023-present. We can also see that the absolute value for the confidence interval values are larger for 2020-2022 than 2023-present.
+
+```{r}
+set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(total_tangency_2020_2022, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+```{r}
+set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(total_tangency_2023_present, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+It also seems like the magnitudes for the confidence intervals for the expanded portfolio are generally higher than the smaller portfolio.
+
+# Part c
+
+
+```{r}
+# Function to calculate weekly returns
+calculate_weekly_returns <- function(returns) {
+  df <- data.frame(Date = as.Date(names(returns)), Returns = returns)
+  
+  weekly_df <- df %>%
+    mutate(Week = format(floor_date(Date, "week"), "%Y-%W")) %>%
+    group_by(Week) %>%
+    summarise(WeeklyReturn = prod(1 + Returns) - 1, .groups = "drop")  # Cumulative return for the week
+  
+  weekly_returns <- weekly_df$WeeklyReturn
+  names(weekly_returns) <- weekly_df$Week  # Assign week labels
+  
+  return(weekly_returns)
+}
+
+# Compute weekly tangency portfolio returns
+weekly_tangency_portfolio_returns <- calculate_weekly_returns(tangency_portfolio_returns)
+
+# Ensure weekly returns have proper date names (use first day of the week)
+weekly_dates <- as.Date(paste0(names(weekly_tangency_portfolio_returns), "-1"), format = "%Y-%W-%u")
+
+# Define periods
+periods <- list(
+  "2020-2022" = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  "2023-present" = c(as.Date("2023-01-01"), Sys.Date())
+)
+
+# Function to filter weekly returns for a given period
+filter_returns_by_period <- function(returns, dates, start_date, end_date) {
+  idx <- which(dates >= start_date & dates <= end_date)  # Find index range
+  return(returns[idx])
+}
+
+# Filter tangency portfolio weekly returns for both periods
+weekly_tangency_portfolio_returns_filtered <- lapply(periods, function(period) {
+  filter_returns_by_period(weekly_tangency_portfolio_returns, weekly_dates, period[1], period[2])
+})
+
+# Assign period names
+names(weekly_tangency_portfolio_returns_filtered) <- names(periods)
+
+print("Filtered Tangency Portfolio Weekly Returns:")
+print(sapply(weekly_tangency_portfolio_returns_filtered, summary))
+```
+
+```{r}
+# Filter tangency portfolio weekly returns for both periods
+weekly_tangency_portfolio_returns_filtered <- lapply(periods, function(period) {
+  filter_returns_by_period(weekly_tangency_portfolio_returns, weekly_dates, period[1], period[2])
+})
+
+# Assign period names
+names(weekly_tangency_portfolio_returns_filtered) <- names(periods)
+
+# Print summary
+print("Filtered Tangency Portfolio Weekly Returns:")
+print(sapply(weekly_tangency_portfolio_returns_filtered, summary))  # Print summaries for each period
+```
+
+ How do the results change in Parts (a) and (b) if the horizon changes
+ to 1 week?
+ 
+```{r}
+tangency_2020_2022 <- weekly_tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2020-2022)
+var_2020_2022 <- calculate_nonparametric_var(tangency_2020_2022, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Week VaR at 99% Confidence Level for 2020-2022 ($10 Billion Investment):")
+print(var_2020_2022)
+```
+ 
+```{r}
+tangency_2023_present <- weekly_tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2023-present)
+var_2023_present <- calculate_nonparametric_var(tangency_2023_present, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Day VaR at 99% Confidence Level for 2023-present ($10 Billion Investment):")
+print(var_2023_present)
+```
+
+```{r}
+set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(tangency_2020_2022, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+```{r}
+set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(tangency_2023_present, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+The VaR for both time periods increased for the 1 week horizon. Also, the magnitudes for the confidence intervals also increased for both time periods for the 1 week horizon.
+
+
+```{r}
+# Compute total weekly tangency portfolio returns
+total_weekly_tangency_portfolio_returns <- calculate_weekly_returns(total_tangency_portfolio_returns)
+
+# Ensure weekly returns have proper date names (use first day of the week)
+weekly_dates <- as.Date(paste0(names(total_weekly_tangency_portfolio_returns), "-1"), format = "%Y-%W-%u")
+
+# Define periods
+periods <- list(
+  "2020-2022" = c(as.Date("2020-01-01"), as.Date("2022-12-31")),
+  "2023-present" = c(as.Date("2023-01-01"), Sys.Date())
+)
+
+# Function to filter weekly returns for a given period
+filter_returns_by_period <- function(returns, dates, start_date, end_date) {
+  idx <- which(dates >= start_date & dates <= end_date)  # Find index range
+  return(returns[idx])
+}
+
+# Filter tangency portfolio weekly returns for both periods
+total_weekly_tangency_portfolio_returns_filtered <- lapply(periods, function(period) {
+  filter_returns_by_period(total_weekly_tangency_portfolio_returns, weekly_dates, period[1], period[2])
+})
+
+# Assign period names
+names(total_weekly_tangency_portfolio_returns_filtered) <- names(periods)
+
+print("Filtered Tangency Portfolio Weekly Returns:")
+print(sapply(total_weekly_tangency_portfolio_returns_filtered, summary))
+```
+
+```{r}
+total_weekly_tangency_2020_2022 <- total_weekly_tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2020-2022)
+total_var_2020_2022 <- calculate_nonparametric_var(total_tangency_2020_2022, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Week VaR at 99% Confidence Level for 2020-2022 ($10 Billion Investment):")
+print(total_var_2020_2022)
+```
+
+```{r}
+total_weekly_tangency_2023_present <- total_weekly_tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Define confidence level
+confidence_level <- 0.99  
+
+# Define investment amount ($10 billion)
+investment <- 10e9  
+
+# Function to calculate nonparametric VaR
+calculate_nonparametric_var <- function(portfolio_returns, confidence_level, investment) {
+  # Compute the empirical quantile (1% worst-case loss)
+  var_threshold <- quantile(portfolio_returns, probs = 1 - confidence_level, na.rm = TRUE)
+  
+  # Convert to dollar amount
+  var_dollar <- abs(var_threshold) * investment
+  
+  return(var_dollar)
+}
+
+# Compute nonparametric VaR for tangency portfolio (2023-present)
+total_var_2023_present <- calculate_nonparametric_var(total_tangency_2023_present, confidence_level, investment)
+
+# Print the result
+print("Nonparametric 1-Week VaR at 99% Confidence Level for 2020-2022 ($10 Billion Investment):")
+print(total_var_2023_present)
+```
+
+```{r}
+set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(total_weekly_tangency_2020_2022, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+```{r}
+set.seed("1010")
+ quantile.calc = function(x,alpha=0.01)
+ {
+ Q=quantile(x,alpha)
+ }
+ bca_quantile = bcanon(total_weekly_tangency_2023_present, 10000, quantile.calc)
+ bca_quantile$confpoints
+```
+
+The VaR values are higher for the expanded portfolio for both time periods. However, that is not the case for the magnitude of the confidence interval values. 
+
+
+# Problem 2
+
+# Part a
+
+
+```{r}
+library(fitHeavyTail)
+
+# Extract returns for 2020-2022 period
+returns_2020_2022 <- tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Ensure returns are properly formatted
+returns_2020_2022 <- returns_2020_2022[!is.na(returns_2020_2022) & is.finite(returns_2020_2022)]
+returns_2020_2022 <- as.matrix(returns_2020_2022)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2020_2022)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2020_2022)
+  sigma.p <- sd(returns_2020_2022)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2020-2022 period:")
+print(VaR)
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2020_2022), nrow(returns_2020_2022), replace = TRUE)
+  returns_bootsamples <- returns_2020_2022[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+```{r}
+# Extract returns for 2023-present period
+returns_2023_present <- tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Ensure returns are properly formatted
+returns_2023_present <- returns_2023_present[!is.na(returns_2023_present) & is.finite(returns_2023_present)]
+returns_2023_present <- as.matrix(returns_2023_present)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2023_present)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2023_present)
+  sigma.p <- sd(returns_2023_present)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Ensure df is valid
+if (!is.finite(df_hat) || df_hat < 3) {
+  warning("df_hat too small. Using normal distribution instead.")
+  df_hat <- Inf
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2023-present period:")
+print(VaR)
+
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2023_present), nrow(returns_2023_present), replace = TRUE)
+  returns_bootsamples <- returns_2023_present[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+```{r}
+# Repeat for expanded portfolio
+
+# Extract returns for 2020-2022 period
+returns_2020_2022 <- total_tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Ensure returns are properly formatted
+returns_2020_2022 <- returns_2020_2022[!is.na(returns_2020_2022) & is.finite(returns_2020_2022)]
+returns_2020_2022 <- as.matrix(returns_2020_2022)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2020_2022)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2020_2022)
+  sigma.p <- sd(returns_2020_2022)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2020-2022 period:")
+print(VaR)
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2020_2022), nrow(returns_2020_2022), replace = TRUE)
+  returns_bootsamples <- returns_2020_2022[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+```{r}
+# Extract returns for 2023-present period
+returns_2023_present <- total_tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Ensure returns are properly formatted
+returns_2023_present <- returns_2023_present[!is.na(returns_2023_present) & is.finite(returns_2023_present)]
+returns_2023_present <- as.matrix(returns_2023_present)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2023_present)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2023_present)
+  sigma.p <- sd(returns_2023_present)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Ensure df is valid
+if (!is.finite(df_hat) || df_hat < 3) {
+  warning("df_hat too small. Using normal distribution instead.")
+  df_hat <- Inf
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2023-present period:")
+print(VaR)
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2023_present), nrow(returns_2023_present), replace = TRUE)
+  returns_bootsamples <- returns_2023_present[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+For the smaller portfolio, the VaR for the 2020-2022 period is larger than the VaR for 2023-present period. For the extended portfolio, the VaR for the 2020 period is smaller than the VaR for the smaller portfolio. For the 2023 period, the value is larger than the VaR for the smaller portfolio during the same period.
+ 
+# Part b
+
+How do the results change if the horizon for VaR becomes 1 week horizon?
+Report and comment on the result and how it changes compared to that of part a?
+
+
+```{r}
+# Extract returns for 2020-2022 period
+returns_2020_2022 <- weekly_tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Ensure returns are properly formatted
+returns_2020_2022 <- returns_2020_2022[!is.na(returns_2020_2022) & is.finite(returns_2020_2022)]
+returns_2020_2022 <- as.matrix(returns_2020_2022)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2020_2022)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2020_2022)
+  sigma.p <- sd(returns_2020_2022)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2020-2022 period:")
+print(VaR)
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2020_2022), nrow(returns_2020_2022), replace = TRUE)
+  returns_bootsamples <- returns_2020_2022[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+```{r}
+# Extract returns for 2023-present period
+returns_2023_present <- weekly_tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Ensure returns are properly formatted
+returns_2023_present <- returns_2023_present[!is.na(returns_2023_present) & is.finite(returns_2023_present)]
+returns_2023_present <- as.matrix(returns_2023_present)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2023_present)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2023_present)
+  sigma.p <- sd(returns_2023_present)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Ensure df is valid
+if (!is.finite(df_hat) || df_hat < 3) {
+  warning("df_hat too small. Using normal distribution instead.")
+  df_hat <- Inf
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2023-present period:")
+print(VaR)
+
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2023_present), nrow(returns_2023_present), replace = TRUE)
+  returns_bootsamples <- returns_2023_present[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+```{r}
+# Repeat for expanded portfolio
+
+# Extract returns for 2020-2022 period
+returns_2020_2022 <- total_weekly_tangency_portfolio_returns_filtered[["2020-2022"]]
+
+# Ensure returns are properly formatted
+returns_2020_2022 <- returns_2020_2022[!is.na(returns_2020_2022) & is.finite(returns_2020_2022)]
+returns_2020_2022 <- as.matrix(returns_2020_2022)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2020_2022)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2020_2022)
+  sigma.p <- sd(returns_2020_2022)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2020-2022 period:")
+print(VaR)
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2020_2022), nrow(returns_2020_2022), replace = TRUE)
+  returns_bootsamples <- returns_2020_2022[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+```{r}
+# Extract returns for 2023-present period
+returns_2023_present <- total_weekly_tangency_portfolio_returns_filtered[["2023-present"]]
+
+# Ensure returns are properly formatted
+returns_2023_present <- returns_2023_present[!is.na(returns_2023_present) & is.finite(returns_2023_present)]
+returns_2023_present <- as.matrix(returns_2023_present)  # Convert to matrix format
+
+# Set investment amount
+S <- 10e9  # $10 billion investment
+
+# Set confidence level for VaR
+alpha <- 0.01  # 99% confidence level
+
+# Fit a multivariate t-distribution to the returns
+params_multt <- tryCatch({
+  fit_mvt(returns_2023_present)
+}, error = function(e) {
+  warning("fit_mvt failed. Using normal distribution as fallback.")
+  return(NULL)
+})
+
+# If fitting failed, assume normal distribution (df = Inf)
+if (is.null(params_multt)) {
+  mu.p <- mean(returns_2023_present)
+  sigma.p <- sd(returns_2023_present)
+  df_hat <- Inf  # Infinite degrees of freedom → Normal distribution
+} else {
+  mu.p <- params_multt$mu  # Portfolio mean return
+  sigma.p <- sqrt(params_multt$cov)  # Portfolio standard deviation
+  df_hat <- params_multt$nu  # Estimated degrees of freedom
+}
+
+# Ensure df is valid
+if (!is.finite(df_hat) || df_hat < 3) {
+  warning("df_hat too small. Using normal distribution instead.")
+  df_hat <- Inf
+}
+
+# Compute 1-day VaR at 99% confidence level
+VaR <- -S * (mu.p + sigma.p * qt(alpha, df_hat))
+
+# Print results
+print("Value at Risk (VaR) at 99% confidence level for 2023-present period:")
+print(VaR)
+```
+
+```{r}
+# Bootstrap replications
+B <- 10000  
+VaR_boot_results <- numeric(B)  # Pre-allocate storage
+
+set.seed(1010)  # Ensure reproducibility
+
+for (repl in 1:B) {
+  # Sample with replacement
+  indices <- sample(1:nrow(returns_2023_present), nrow(returns_2023_present), replace = TRUE)
+  returns_bootsamples <- returns_2023_present[indices, , drop = FALSE]  # Keep matrix format
+  
+  # Fit multivariate t-distribution to bootstrap sample
+  params_multt_boot <- tryCatch({
+    fit_mvt(returns_bootsamples)
+  }, error = function(e) {
+    return(NULL)
+  })
+
+  # If fitting fails, assume normal distribution
+  if (!is.null(params_multt_boot)) {
+    mu_p_boot <- params_multt_boot$mu  # Portfolio mean return
+    sigma_p_boot <- sqrt(params_multt_boot$cov)  # Portfolio standard deviation
+    df_hat_boot <- params_multt_boot$nu  # Estimated degrees of freedom
+  } else {
+    mu_p_boot <- mean(returns_bootsamples, na.rm = TRUE)
+    sigma_p_boot <- sd(returns_bootsamples, na.rm = TRUE)
+    df_hat_boot <- Inf  # Normal distribution fallback
+  }
+
+  # Compute VaR for bootstrap sample
+  VaR_boot_results[repl] <- -S * (mu_p_boot + sigma_p_boot * qt(alpha, df_hat_boot))
+}
+
+# Compute 95% confidence interval for VaR
+VaR_CI <- quantile(VaR_boot_results, c(0.025, 0.975))
+
+# Print results
+print("95% Confidence Interval for VaR (99% confidence level):")
+print(VaR_CI)
+```
+
+As expected the VaR values increased for both portfolios and both time periods. This time the VaR values for the expanded portoflios were greater for their respective periods than the smaller portfolio. 
