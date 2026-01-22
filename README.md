@@ -4,8 +4,7 @@ ical data for the expected returns and risks for the periods 2020-2022 and 2023-
 from part (a) and (b) in HW 2.
 
 Part (a):
-Using the code in the lecture slides calculate VaR for 1 day horizon, nonparametri
-cally for confidence level 0.99 for these portfolios. Further, assume that the investment
+Using the code in the lecture slides calculate VaR for 1 day horizon, nonparametrically for confidence level 0.99 for these portfolios. Further, assume that the investment
 is $10 billion.
 
 Part (b):
